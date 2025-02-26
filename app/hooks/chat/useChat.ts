@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Message } from '@/app/db/schema';
 import { ChatOptions, LLMApi, RequestMessage, MessageContent } from '@/app/adapter/interface';
 import chatHistoryConfig from '@/app/store/chatHistoryConfig';
@@ -9,6 +9,7 @@ import { getLLMInstance } from '@/app/adapter/models';
 import useModelListStore from '@/app/store/modelList';
 import { ResponseContent } from '@/app/adapter/interface';
 import { addMessageInServer, getMessagesInServer, deleteMessageInServer, clearMessageInServer } from '@/app/chat/actions/message';
+import useGlobalConfigStore from '@/app/store/globalConfig';
 import { localDb } from '@/app/db/localDb';
 
 const useChat = (chatId: string) => {
@@ -24,6 +25,7 @@ const useChat = (chatId: string) => {
   const [userSendCount, setUserSendCount] = useState(0);
   const { chat, initializeChat } = useChatStore();
   const { setNewTitle } = useChatListStore();
+  const { chatNamingModel } = useGlobalConfigStore();
 
   useEffect(() => {
     const llmApi = getLLMInstance(currentModel.provider.id);
@@ -86,18 +88,28 @@ const useChat = (chatId: string) => {
     setInput(e.target.value);
   };
 
+  const chatNamingModelStable = useMemo(() => chatNamingModel, [chatNamingModel]);
   const shouldSetNewTitle = useCallback((messages: RequestMessage[]) => {
     if (userSendCount === 0 && !chat?.isWithBot) {
-      const renameModel = currentModel.id
-      generateTitle(messages, renameModel, currentModel.provider.id, (message: string) => {
-        setNewTitle(chatId, message);
-      }, () => { })
+      if (chatNamingModelStable !== 'none') {
+        let renameModel = currentModel.id;
+        let renameProvider = currentModel.provider.id;
+        if (chatNamingModelStable !== 'current') {
+          const [providerId, modelId] = chatNamingModelStable.split('|');
+          renameModel = modelId;
+          renameProvider = providerId;
+        }
+        generateTitle(messages, renameModel, renameProvider, (message: string) => {
+          setNewTitle(chatId, message);
+        }, () => { })
+      }
     }
   }, [
     chat,
     chatId,
     currentModel,
     userSendCount,
+    chatNamingModelStable,
     setNewTitle,
   ]);
 
@@ -110,7 +122,7 @@ const useChat = (chatId: string) => {
       chatId: chatId,
       onUpdate: (responseContent: ResponseContent) => {
         const now = Date.now();
-        if (now - lastUpdate < 60) return; // 如果距离上次更新小于 60ms，则不更新
+        if (now - lastUpdate < 50) return; // 如果距离上次更新小于 50ms，则不更新
         setResponseMessage(responseContent);
         lastUpdate = now;
       },
@@ -128,7 +140,6 @@ const useChat = (chatId: string) => {
         setMessageList(prevList => [...prevList, respMessage]);
         setResponseStatus("done");
         setResponseMessage({ content: '', reasoning_content: '' });
-        shouldSetNewTitle(messages);
       },
       onError: async (error) => {
         const respMessage: Message = {
@@ -150,7 +161,6 @@ const useChat = (chatId: string) => {
     }
     chatBot?.chat(options);
   }, [
-    shouldSetNewTitle,
     chatBot,
     chatId,
     currentModel,

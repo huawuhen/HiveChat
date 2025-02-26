@@ -10,7 +10,6 @@ export default function ChatLayout({
   children: React.ReactNode
 }) {
   const { initModelList, setCurrentModel, setIsPending, initAllProviderList } = useModelListStore();
-
   useEffect(() => {
     const initializeModelList = async () => {
       try {
